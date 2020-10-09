@@ -75,6 +75,7 @@ function viewSection(name, address){
         newSection.html(plugin);
         $('html, body').animate({scrollTop: newSection.offset().top}, 1000);
     }
+    closeNav();
     restRequest('GET', null, display, address);
 }
 
@@ -104,6 +105,20 @@ $(document).ready(function () {
             observer.observe(this, {childList: true});
         }
     });
+    $(document).keyup(function(e){
+        if(e.key == "Escape"){
+            $('.modal').hide();
+            document.getElementById("mySidenav").style.width = "0px";
+        }
+    });
+    $('body').click(function(event) {
+        if(!$(event.target).closest('.modal-content').length && $(event.target).is('.modal')) {
+            $('.modal').hide();
+        }
+        if(!$(event.target).closest('#mySidenav').length && !$(event.target).is('.navbar span')) {
+            document.getElementById("mySidenav").style.width = "0px";
+        }
+    });
 });
 
 function alphabetize_dropdown(obj) {
@@ -127,19 +142,6 @@ function alphabetize_dropdown(obj) {
   }
 })(jQuery);
 
-window.onload = function checkBrowser(){
-    if(navigator.vendor !==  "Google Inc." && navigator.vendor !==  "Apple Computer, Inc.") {
-        $('#notice').css('display', 'block');
-        $(window).scroll(function(){
-            var sticky = $('.notice'),
-                scroll = $(window).scrollTop();
-
-            if (scroll >= 100) sticky.addClass('.notice');
-            else sticky.removeClass('.notice');
-          });
-    }
-};
-
 $(document).ready(function () {
    stream('Welcome home. Go into the Agents tab to review your deployed agents.');
 });
@@ -156,4 +158,31 @@ window.onerror = function(error, url, line) {
 function warn(msg){
     document.getElementById("alert-modal").style.display="block";
     $("#alert-text").html(msg);
+}
+
+function display_errors(errors){
+    function add_element(txt, level){
+        let newitem = $("#infolist-template").clone();
+        newitem.show();
+        newitem.find(".infolist-contents p").html(txt)
+        if(!level){
+            newitem.find(".infolist-icon img").attr('src', '/gui/img/success.png')
+        }
+        $("#info-list").append(newitem);
+    }
+    document.getElementById("list-modal").style.display="block";
+    $("#info-list").empty();
+    if(errors.length === 0) {
+        add_element("no errors to view", 0);
+    }
+    for(let id in errors){
+        add_element(errors[id].name + ": " + errors[id].msg, 1);
+    }
+}
+
+function openNav() {
+  document.getElementById("mySidenav").style.width = "250px";
+}
+function closeNav() {
+  document.getElementById("mySidenav").style.width = "0";
 }

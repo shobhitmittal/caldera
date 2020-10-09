@@ -5,7 +5,7 @@ from aiohttp_jinja2 import template
 from app.utility.base_world import BaseWorld
 
 
-class Html(BaseWorld):
+class Contact(BaseWorld):
 
     def __init__(self, services):
         self.name = 'html'
@@ -14,14 +14,14 @@ class Html(BaseWorld):
         self.contact_svc = services.get('contact_svc')
 
     async def start(self):
-        self.app_svc.application.router.add_route('GET', self.get_config('app.contact.html'), self._accept_beacon)
+        self.app_svc.application.router.add_route('*', self.get_config('app.contact.html'), self._accept_beacon)
 
     """ PRIVATE """
 
     @template('weather.html')
     async def _accept_beacon(self, request):
         try:
-            profile = json.loads(self.decode_bytes(request.query.get('profile')))
+            profile = json.loads(self.decode_bytes(await request.text()))
             profile['paw'] = profile.get('paw')
             profile['contact'] = 'html'
             agent, instructions = await self.contact_svc.handle_heartbeat(**profile)

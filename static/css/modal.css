@@ -59,18 +59,18 @@ span.psw {
     padding-top: 40px;
     overflow-y: scroll;
     height: 100%;
-    -webkit-backdrop-filter: blur(5px);
-    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
 }
 .modal-content {
     margin: 5% auto 5% auto;
-    width: 70%;
+    width: 85%;
 }
 .modal p {
     color: #333;
 }
 .modal-box {
-    max-height: 70%;
+    max-height: 80%;
     overflow: auto;
     overflow-y: auto;
 }
@@ -96,4 +96,28 @@ span.psw {
 .close:focus {
     color: #7a1f1f;
     cursor: pointer;
+}
+#alert-modal {
+    z-index: 120;
+}
+.config-arg input {
+    padding: 5px;
+    margin: 5px;
+    text-align: left;
+    font-size: 13px
+}
+.config-arg label {
+    color: white;
+    font-size: 14px
+}
+.config-arg {
+    vertical-align: initial;
+}
+p.command {
+    padding: 10px;
+    width: 85%;
+    color: white;
+    font-size: 13px;
+    font-style:italic;
+    background-color: rgba(170, 170, 170, 0.15);
 }

@@ -1,73 +1,52 @@
-import ast
 import asyncio
-import copy
-import re
 import logging
+import re
 import uuid
 from collections import defaultdict
+from copy import deepcopy
 from datetime import datetime
 from enum import Enum
 from importlib import import_module
 from random import randint
 
-from app.objects.c_adversary import Adversary
+import marshmallow as ma
+
+from app.objects.c_adversary import AdversarySchema
+from app.objects.c_agent import AgentSchema
+from app.objects.c_planner import PlannerSchema
+from app.objects.c_objective import ObjectiveSchema
+from app.objects.interfaces.i_object import FirstClassObjectInterface
 from app.utility.base_object import BaseObject
 
-REDACTED = '**REDACTED**'
+
+class OperationSchema(ma.Schema):
+    id = ma.fields.Integer()
+    name = ma.fields.String()
+    host_group = ma.fields.List(ma.fields.Nested(AgentSchema()), attribute='agents')
+    adversary = ma.fields.Nested(AdversarySchema())
+    jitter = ma.fields.String()
+    planner = ma.fields.Nested(PlannerSchema())
+    start = ma.fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    state = ma.fields.String()
+    obfuscator = ma.fields.String()
+    autonomous = ma.fields.Integer()
+    chain = ma.fields.Function(lambda obj: [lnk.display for lnk in obj.chain])
+    auto_close = ma.fields.Boolean()
+    visibility = ma.fields.Integer()
+    objective = ma.fields.Nested(ObjectiveSchema())
+
+    @ma.post_load
+    def build_planner(self, data, **_):
+        return Operation(**data)
 
 
-def redact_report(report):
-    redacted = copy.deepcopy(report)
-    # host_group
-    for agent in redacted.get('host_group', []):
-        agent['group'] = REDACTED
-        agent['server'] = REDACTED
-        agent['location'] = REDACTED
-        agent['display_name'] = REDACTED
-        agent['host'] = REDACTED
-    # steps
-    steps = redacted.get('steps', dict())
-    for agentname, agent in steps.items():
-        for step in agent['steps']:
-            step['description'] = REDACTED
-            step['name'] = REDACTED
-            step['output'] = REDACTED
-    # adversary
-    redacted['adversary']['name'] = REDACTED
-    redacted['adversary']['description'] = REDACTED
-    for phase in redacted['adversary']['phases'].values():
-        for step in phase:
-            step['name'] = REDACTED
-            step['description'] = REDACTED
-    # facts
-    for fact in redacted.get('facts', []):
-        fact['unique'] = REDACTED
-        fact['value'] = REDACTED
-    # skipped_abilities
-    for s in redacted.get('skipped_abilities', []):
-        for agentname, ability_list in s.items():
-            for ability in ability_list:
-                ability['ability_name'] = REDACTED
+class Operation(FirstClassObjectInterface, BaseObject):
 
-    return redacted
-
-
-class Operation(BaseObject):
+    schema = OperationSchema()
 
     @property
     def unique(self):
         return self.hash('%s' % self.id)
-
-    @property
-    def display(self):
-        return self.clean(dict(id=self.id, name=self.name, host_group=[a.display for a in self.agents],
-                               adversary=self.adversary.display if self.adversary else '', jitter=self.jitter,
-                               source=self.source.display if self.source else '',
-                               planner=self.planner.name if self.planner else '',
-                               start=self.start.strftime('%Y-%m-%d %H:%M:%S') if self.start else '',
-                               state=self.state, phase=self.phase, obfuscator=self.obfuscator,
-                               autonomous=self.autonomous, finish=self.finish,
-                               chain=[lnk.display for lnk in self.chain]))
 
     @property
     def states(self):
@@ -75,10 +54,11 @@ class Operation(BaseObject):
                     RUN_ONE_LINK='run_one_link',
                     PAUSED='paused',
                     OUT_OF_TIME='out_of_time',
-                    FINISHED='finished')
+                    FINISHED='finished',
+                    CLEANUP='cleanup')
 
     def __init__(self, name, agents, adversary, id=None, jitter='2/8', source=None, planner=None, state='running',
-                 autonomous=True, phases_enabled=True, obfuscator='plain-text', group=None, auto_close=True,
+                 autonomous=True, obfuscator='plain-text', group=None, auto_close=True,
                  visibility=50, access=None):
         super().__init__()
         self.id = id
@@ -92,12 +72,12 @@ class Operation(BaseObject):
         self.planner = planner
         self.state = state
         self.autonomous = autonomous
-        self.phases_enabled = phases_enabled
-        self.phase = 0
+        self.last_ran = None
         self.obfuscator = obfuscator
         self.auto_close = auto_close
         self.visibility = visibility
-        self.chain, self.rules = [], []
+        self.objective = None
+        self.chain, self.potential_links, self.rules = [], [], []
         self.access = access if access else self.Access.APP
         if source:
             self.rules = source.rules
@@ -116,6 +96,9 @@ class Operation(BaseObject):
     def add_link(self, link):
         self.chain.append(link)
 
+    def has_link(self, link_id):
+        return any(str(lnk.id) == str(link_id) for lnk in self.potential_links + self.chain)
+
     def all_facts(self):
         seeded_facts = [f for f in self.source.facts] if self.source else []
         learned_facts = [f for lnk in self.chain for f in lnk.facts if f.score > 0]
@@ -128,7 +111,9 @@ class Operation(BaseObject):
         return False
 
     def all_relationships(self):
-        return [r for lnk in self.chain for r in lnk.relationships]
+        seeded_relationships = [r for r in self.source.relationships] if self.source else []
+        learned_relationships = [r for lnk in self.chain for r in lnk.relationships]
+        return seeded_relationships + learned_relationships
 
     async def apply(self, link):
         while self.state != self.states['RUNNING']:
@@ -141,12 +126,15 @@ class Operation(BaseObject):
         self.add_link(link)
         return link.id
 
-    async def close(self):
+    async def close(self, services):
+        await self._cleanup_operation(services)
+        await self._save_new_source(services)
+        await services.get('event_svc').fire_event('operation/completed', op=self.id)
         if self.state not in [self.states['FINISHED'], self.states['OUT_OF_TIME']]:
             self.state = self.states['FINISHED']
         self.finish = self.get_current_timestamp()
 
-    async def wait_for_phase_completion(self):
+    async def wait_for_completion(self):
         for member in self.agents:
             if not member.trusted:
                 for link in await self._unfinished_links_for_agent(member.paw):
@@ -166,19 +154,20 @@ class Operation(BaseObject):
         for link_id in link_ids:
             link = [link for link in self.chain if link.id == link_id][0]
             member = [member for member in self.agents if member.paw == link.paw][0]
-            while not link.finish or link.can_ignore():
+            while not (link.finish or link.can_ignore()):
                 await asyncio.sleep(5)
                 if not member.trusted:
                     break
 
     async def is_closeable(self):
-        if await self.is_finished() or (self.auto_close and self.phase >= len(self.adversary.phases)):
+        if await self.is_finished() or self.auto_close:
             self.state = self.states['FINISHED']
             return True
         return False
 
     async def is_finished(self):
-        if self.state in [self.states['FINISHED'], self.states['OUT_OF_TIME']]:
+        if self.state in [self.states['FINISHED'], self.states['OUT_OF_TIME'], self.states['CLEANUP']] \
+                or (self.objective and self.objective.completed(self.all_facts())):
             return True
         return False
 
@@ -192,90 +181,81 @@ class Operation(BaseObject):
                 active.append(agent)
         return active
 
-    def report(self, file_svc, output=False, redacted=False):
-        report = dict(name=self.name, host_group=[a.display for a in self.agents],
-                      start=self.start.strftime('%Y-%m-%d %H:%M:%S'),
-                      steps=[], finish=self.finish, planner=self.planner.name, adversary=self.adversary.display,
-                      jitter=self.jitter, facts=[f.display for f in self.all_facts()])
-        agents_steps = {a.paw: {'steps': []} for a in self.agents}
-        for step in self.chain:
-            step_report = dict(ability_id=step.ability.ability_id,
-                               command=step.command,
-                               delegated=step.decide.strftime('%Y-%m-%d %H:%M:%S'),
-                               run=step.finish,
-                               status=step.status,
-                               platform=step.ability.platform,
-                               executor=step.ability.executor,
-                               pid=step.pid,
-                               description=step.ability.description,
-                               name=step.ability.name,
-                               attack=dict(tactic=step.ability.tactic,
-                                           technique_name=step.ability.technique_name,
-                                           technique_id=step.ability.technique_id))
-            if output and step.output:
-                step_report['output'] = self.decode_bytes(file_svc.read_result_file(step.unique))
-            agents_steps[step.paw]['steps'].append(step_report)
-        report['steps'] = agents_steps
-        report['skipped_abilities'] = self._get_skipped_abilities_by_agent()
-        if redacted:
-            return redact_report(report)
-        return report
+    async def get_active_agent_by_paw(self, paw):
+        return [a for a in await self.active_agents() if a.paw == paw]
+
+    async def report(self, file_svc, data_svc, output=False, redacted=False):
+        try:
+            report = dict(name=self.name, host_group=[a.display for a in self.agents],
+                          start=self.start.strftime('%Y-%m-%d %H:%M:%S'),
+                          steps=[], finish=self.finish, planner=self.planner.name, adversary=self.adversary.display,
+                          jitter=self.jitter, objectives=self.objective.display,
+                          facts=[f.display for f in self.all_facts()])
+            agents_steps = {a.paw: {'steps': []} for a in self.agents}
+            for step in self.chain:
+                step_report = dict(ability_id=step.ability.ability_id,
+                                   command=step.command,
+                                   delegated=step.decide.strftime('%Y-%m-%d %H:%M:%S'),
+                                   run=step.finish,
+                                   status=step.status,
+                                   platform=step.ability.platform,
+                                   executor=step.ability.executor,
+                                   pid=step.pid,
+                                   description=step.ability.description,
+                                   name=step.ability.name,
+                                   attack=dict(tactic=step.ability.tactic,
+                                               technique_name=step.ability.technique_name,
+                                               technique_id=step.ability.technique_id))
+                if output and step.output:
+                    step_report['output'] = self.decode_bytes(file_svc.read_result_file(step.unique))
+                agents_steps[step.paw]['steps'].append(step_report)
+            report['steps'] = agents_steps
+            report['skipped_abilities'] = await self._get_skipped_abilities_by_agent(data_svc)
+
+            return report
+        except Exception:
+            logging.error('Error saving operation report (%s)' % self.name, exc_info=True)
 
     async def run(self, services):
+        # load objective
+        obj = await services.get('data_svc').locate('objectives', match=dict(id=self.adversary.objective))
+        if obj == []:
+            obj = await services.get('data_svc').locate('objectives', match=dict(name='default'))
+        self.objective = deepcopy(obj[0])
         try:
+            # Operation cedes control to planner
             planner = await self._get_planning_module(services)
-            self.adversary = await self._adjust_adversary_phases()
-            await self._run_phases(planner)
-
-            self.phases_enabled = False
+            await planner.execute()
             while not await self.is_closeable():
                 await asyncio.sleep(10)
-                await self._run_phases(planner)
-            await self._cleanup_operation(services)
-            await self.close()
-            await self._save_new_source(services)
+            await self.close(services)
         except Exception as e:
             logging.error(e, exc_info=True)
 
     """ PRIVATE """
 
-    async def _run_phases(self, planner):
-        for phase in self.adversary.phases:
-            if not await self.is_closeable():
-                await planner.execute(phase)
-                if planner.stopping_condition_met:
-                    break
-                await self.wait_for_phase_completion()
-            self.phase = phase
-
     async def _cleanup_operation(self, services):
         for member in self.agents:
             for link in await services.get('planning_svc').get_cleanup_links(self, member):
                 self.add_link(link)
-        await self.wait_for_phase_completion()
+        await self.wait_for_completion()
 
     async def _get_planning_module(self, services):
         planning_module = import_module(self.planner.module)
-        planner_params = ast.literal_eval(self.planner.params)
-        return getattr(planning_module, 'LogicalPlanner')(self, services.get('planning_svc'), **planner_params,
-                                                          stopping_conditions=self.planner.stopping_conditions)
-
-    async def _adjust_adversary_phases(self):
-        if not self.phases_enabled:
-            return Adversary(adversary_id=(self.adversary.adversary_id + "_phases_disabled"),
-                             name=(self.adversary.name + " - with phases disabled"),
-                             description=(self.adversary.name + " with phases disabled"),
-                             phases={1: [i for phase, ab in self.adversary.phases.items() for i in ab]})
-        else:
-            return self.adversary
+        return planning_module.LogicalPlanner(self, services.get('planning_svc'), **self.planner.params,
+                                              stopping_conditions=self.planner.stopping_conditions)
 
     async def _save_new_source(self, services):
+        def fact_to_dict(f):
+            if f:
+                return dict(trait=f.trait, value=f.value, score=f.score)
         data = dict(
             id=str(uuid.uuid4()),
             name=self.name,
-            facts=[dict(trait=f.trait, value=f.value, score=f.score) for link in self.chain for f in link.facts]
+            facts=[fact_to_dict(f) for link in self.chain for f in link.facts],
+            relationships=[dict(source=fact_to_dict(r.source), edge=r.edge, target=fact_to_dict(r.target), score=r.score) for link in self.chain for r in link.relationships]
         )
-        await services.get('rest_svc').persist_source(data)
+        await services.get('rest_svc').persist_source(dict(access=[self.access]), data)
 
     async def update_operation(self, services):
         self.agents = await services.get('rest_svc').construct_agents_for_group(self.group)
@@ -283,8 +263,8 @@ class Operation(BaseObject):
     async def _unfinished_links_for_agent(self, paw):
         return [l for l in self.chain if l.paw == paw and not l.finish and not l.can_ignore()]
 
-    def _get_skipped_abilities_by_agent(self):
-        abilities_by_agent = self._get_all_possible_abilities_by_agent()
+    async def _get_skipped_abilities_by_agent(self, data_svc):
+        abilities_by_agent = await self._get_all_possible_abilities_by_agent(data_svc)
         skipped_abilities = []
         for agent in self.agents:
             agent_skipped = defaultdict(dict)
@@ -292,7 +272,7 @@ class Operation(BaseObject):
             agent_ran = set([link.ability.display['ability_id'] for link in self.chain if link.paw == agent.paw])
             for ab in abilities_by_agent[agent.paw]['all_abilities']:
                 skipped = self._check_reason_skipped(agent=agent, ability=ab, agent_executors=agent_executors,
-                                                     op_facts=[f.display for f in self.all_facts()],
+                                                     op_facts=[f.trait for f in self.all_facts()],
                                                      state=self.state, agent_ran=agent_ran)
                 if skipped:
                     if agent_skipped[skipped['ability_id']]:
@@ -303,12 +283,13 @@ class Operation(BaseObject):
             skipped_abilities.append({agent.paw: list(agent_skipped.values())})
         return skipped_abilities
 
-    def _get_all_possible_abilities_by_agent(self):
-        return {a.paw: {'all_abilities': [ab for p in self.adversary.phases
-                                          for ab in self.adversary.phases[p]]} for a in self.agents}
+    async def _get_all_possible_abilities_by_agent(self, data_svc):
+        abilities = {'all_abilities': [ab for ab_id in self.adversary.atomic_ordering
+                     for ab in await data_svc.locate('abilities', match=dict(ability_id=ab_id))]}
+        return {a.paw: abilities for a in self.agents}
 
     def _check_reason_skipped(self, agent, ability, op_facts, state, agent_executors, agent_ran):
-        variables = re.findall(r'#{(.*?)}', self.decode_bytes(ability.test), flags=re.DOTALL)
+        variables = re.findall(r'#{(.*?)}', self.decode_bytes(ability.test), flags=re.DOTALL) if ability.test else []
         if ability.ability_id in agent_ran:
             return
         elif not agent.trusted:
