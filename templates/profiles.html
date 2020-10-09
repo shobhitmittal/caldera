@@ -24,14 +24,17 @@
                 <option id="adversary-{{ adv.adversary_id}}" value="{{ adv.adversary_id }}">{{ adv.name }}</option>
             {% endfor %}}
           </select>
-          <button class="button-embedded" onclick="addPhase(null)">Add phase</button>
       </div>
       <button id="advNewBtn" type="button" class="button-success atomic-button" onclick="saveAdversary()">Save</button>
       <hr>
       <button type="button" class="button-success atomic-button" onclick="deleteProfile()">Delete profile</button>
     </div>
     <div id="phases" class="column adversary-header" style="flex:75%;text-align: left">
-        <input id="profile-goal" type="text" placeholder="enter a profile name">
+        <div id="row">
+            <input id="profile-goal" type="text" placeholder="enter a profile name">
+            <img id='objective-img' style="display:none" src="/gui/img/compass.png" onclick="showObjectiveModal()">
+        </div>
+        <input id="objective-select" type="text" style="display:none" disabled>
         <input id="profile-description" type="text" placeholder="enter a profile description">
         <br><br>
         <div id="dummy"></div>
@@ -43,20 +46,22 @@
     <form class="modal-content">
         <div class="container section-profile row ability-viewer modal-box">
             <div class="column" style="flex:100%;">
-                <select id="ability-tactic-filter" onchange="populateTechniques('phase-modal', {{ exploits }});">
+                <select id="ability-tactic-filter" onchange="populateTechniques('phase-modal', exploits);">
                     <option disabled selected>Choose a tactic</option>
                     {% for tactic in tactics %}
                         <option value={{ tactic }} data-tactic={{ tactic }}>{{ tactic }}</option>
                     {% endfor %}}
                 </select>
-                <select id="ability-technique-filter" onchange="populateAbilities('phase-modal', {{ exploits }});">
+                <select id="ability-technique-filter" onchange="populateAbilities('phase-modal', exploits);">
                     <option disabled selected>Choose a technique</option>
                 </select>
-                <select id="ability-ability-filter" onchange="showAbility('phase-modal',  {{ exploits }})">
+                <select id="ability-ability-filter" onchange="showAbility('phase-modal', exploits)">
                     <option disabled selected>0 abilities</option>
                 </select>
+                <input id="ability-search-filter" style="width:60%;" type="text" placeholder="Search for abilities..." onkeyup="searchAbilities('phase-modal', exploits);">
+                <button id="reset-ability-modal-button" type="button" class="atomic-button" style="width:115px;height:30px;padding-top:8px;color:black;background-color:firebrick" onclick="clearPhaseModal()">Reset Fields</button>
                 <br><br>
-                <div class="ability-attack row-simple">
+                <div id="ability-manager" class="ability-attack row-simple">
                     <div class="column" style="flex:60%">
                         <table frame=void rules=rows style="border-spacing:2px;width:100%">
                             <tr>
@@ -76,7 +81,7 @@
                                 <td><input type="text" id="ability-tactic-name" placeholder="ATT&CK tactic"></td>
                             <tr>
                             <tr>
-                                <td style="width:10%"><b>technique:</b></td>
+                                <td style="width:10%"><b>technique id:</b></td>
                                 <td><input type="text" id="ability-tech-id" placeholder="ATT&CK technique ID"></td>
                             </tr>
                             <tr>
@@ -84,68 +89,57 @@
                                 <td><input type="text" id="ability-tech-name" placeholder="ATT&CK technique name"></td>
                             </tr>
                         </table>
+
                     </div>
-                    <div class="column" style="flex:10%">
-                        <div>
-                            <img src="/gui/img/recycle.png">
-                            <p style="color:white;text-align: center;" onclick="freshId()">generate new id</p>
+                    <div class="column" style="flex:40%">
+                        <div id="ability-modifier-buttons row-simple" style="overflow: hidden; display: flex">
+                            <div class="column" style="float: left; margin: 0px; flex:20%">
+                                <div>
+                                    <img onclick="freshId()" style="cursor:pointer" src="/gui/img/recycle.png">
+                                    <p style="color:white;text-align: center; padding-top: 4px" onclick="freshId()">generate new id</p>
+                                </div>
+                            </div>
+                            <div class="column" style="float: left; margin: 0px; flex:20%">
+                                <div>
+                                    <img onclick="addExecutorBlock()" style="cursor:pointer" src="/gui/img/executor.png">
+                                    <p style="color:white;text-align: center; padding-top: 4px" onclick="addExecutorBlock()">add executor</p>
+                                </div>
+                            </div>
+                            <div class="column" style="float: left; margin: 0px; flex:20%">
+                                <div>
+                                    <label for="uploadPayloadFile"><img style="cursor:pointer" src="/gui/img/payload.png"></label>
+                                    <form id="uploadPayloadForm">
+                                       <label id="uploadFileLabel" for="uploadPayloadFile"><br><br>upload payload</label>
+                                       <input type="file" id="uploadPayloadFile" style="display: none">
+                                    </form>
+                                </div>
+                            </div>
+                            <div class="column" style="float: left; margin: 0px; flex:20%">
+                                <div>
+                                    <img onclick="addAdditionalInfo()" style="cursor:pointer" src="/gui/img/additional-fields.png">
+                                    <p style="color:white;text-align: center; padding-top: 4px" onclick="addAdditionalInfo()">add info</p>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="column" style="flex:10%">
-                        <div>
-                            <img src="/gui/img/executor.png">
-                            <p style="color:white;text-align: center;" onclick="addExecutorBlock()">add executor</p>
-                        </div>
-                    </div>
-                    <div class="column" style="flex:10%">
-                        <div>
-                            <img src="/gui/img/payload.png">
-                            <form id="uploadPayloadForm">
-                               <label id="uploadFileLabel" for="uploadPayloadFile"><br><br>upload payload</label>
-                               <input type="file" id="uploadPayloadFile" style="display: none">
-                            </form>
+                        <br>
+                        <div id="ability-additional-info" style="display: flex">
+                            <div style="flex: 15%; display: flex; justify-content: center; align-items: center;"><b>Info:</b></div>
+                            <table id="additional-info-table" frame=void rules=rows style="flex:85%">
+                                <tbody>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                     <br><br>
                 </div>
                 <ul id="ttp-tests"></ul>
                 <div style="float:right;">
-                    <button type="button" class="button-success atomic-button" onclick="saveAbility()">Save</button>
-                    <button type="button" class="button-success atomic-button" onclick="addAbilityToPhase()">Add to phase</button>
-                    <div id="ability-flashy-holder">
-                        <span id="message"></span>
-                    </div>
+                    <button id="ability-save" type="button" class="button-success atomic-button" onclick="saveAbility()">Save</button>
+                    <button type="button" class="button-success atomic-button" onclick="addAbilityToPhase()">Add to Adversary</button>
                 </div>
             </div>
             <div class="imgcontainer">
-                <span onclick="document.getElementById('phase-modal').style.display='none'" class="close" title="Close Modal">&times;</span>
-            </div>
-        </div>
-    </form>
-</div>
-
-<div id="pack-modal" class="modal">
-    <form class="modal-content">
-        <div class="container section-profile row ability-viewer modal-box">
-            <div class="column" style="flex:100%;">
-                <p>Include the phases and abilities of another profile in this one. These phases can be inserted as new phases (default) or merged into the current profile's existing phases.
-                </p>
-                <select id="adv-pack-filter" onchange="showPack();">
-                    <option disabled selected>Choose a profile</option>
-                    {% for pack in adversaries %}
-                        <option value={{ pack.adversary_id }}>{{ pack.name }}</option>
-                    {% endfor %}}
-                </select></br>
-                <input type="checkbox" id="adv-pack-merge" name="adv-pack-merge">
-                <label for="adv-pack-merge">Merge into existing phases?</label><br>
-                <div id="pack-phases"></div>
-                <br><br>
-                <div style="float:right;width:30%;">
-                    <button type="button" class="button-success atomic-button" onclick="addPackToPhase()">Add to phase</button>
-                </div>
-            </div>
-            <div class="imgcontainer">
-                <span onclick="document.getElementById('pack-modal').style.display='none'" class="close" title="Close Modal">&times;</span>
+                <span onclick="hidePhaseModal()" class="close" title="Close Modal">&times;</span>
             </div>
         </div>
     </form>
@@ -153,21 +147,94 @@
 
 <div id="phase-template" style="display: none;">
     <center>
-        <ul id="profile-tests" class="profile-tests"></ul>
+        <div class="grid" id="grid">
+        </div>
     </center>
 </div>
 
-<li id="ability-template" class="ability-box" style="display: none">
-    <h4 id="name" style="margin:5px"></h4>
-    <b><p id="ability-attack" style="text-transform: uppercase;font-size:11px;opacity:0.7;"></p></b>
+<div id="ability-template" class="ability-box" style="display: none">
+    <div class="ability-show">
+        <h4 id="name" style="margin:5px; margin-top:5px;"></h4>
+        <b><p id="ability-attack" style="text-transform: uppercase;font-size:11px;opacity:0.7;"></p></b>
+    </div>
     <center>
-        <p class="topright" id="ability-rm"></p>
-        <table class="bottomright">
-            <tr id="ability-metadata"></tr>
-        </table>
-        <div id="icon-row" class="icon-row"></div>
+        <div>
+            <div class="topright" id="ability-rm">
+                <div class="ability-remove"><div style="font-size:8px;">&#x274C;</div></div>
+            </div>
+            <div class="topleftnum">
+                <div class="ability-order">*</div>
+            </div>
+            <div id="ability-metadata" class="bottomright">
+            </div>
+            <div id="icon-row" class="icon-row"></div>
+        </div>
     </center>
-</li>
+</div>
+
+<span id="ability-tooltip" class="tooltiptext"></span>
+
+<div id="adv-objective-modal" class="modal">
+    <form class="modal-content">
+        <div class="container section-profile row ability-viewer modal-box">
+            <div class="column" style="flex:100%;">
+                <p style="text-align: center;">Specify an objective for this adversary.</p>
+                 <select id="objective-existing">
+                    <option value="" disabled selected>Select an Objective</option>
+                        {% for obj in objectives %}
+                            <option id="objective-{{ obj.id }}" value="{{ obj.id }}">{{ obj.name }}</option>
+                        {% endfor %}}
+                 </select>
+                <br><br>
+                <hr> <br>
+                <input id="objective-description" type="text" placeholder="Select an Objective" disabled>
+                <div style="width:30%;margin:0 auto;">
+                    <button type="button" class="button-success atomic-button"
+                            onclick="linkObjective()">Link to adversary</button>
+                </div>
+            </div>
+            <div class="imgcontainer">
+                <span onclick="hideObjectiveModal()" class="close" title="Close Modal">&times;</span>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div id="adv-profile-modal" class="modal">
+    <form class="modal-content">
+        <div class="container section-profile row ability-viewer modal-box">
+            <div class="column" style="flex:100%;">
+                <p style="text-align: center;">Include the abilities of another profile in this one. These abilities can be appended to the existing adversary profile.
+                </p>
+                <select id="adv-profile-filter">
+                    <option disabled selected>Choose a profile</option>
+                    {% for adv in adversaries %}
+                        <option value={{ adv.adversary_id }}>{{ adv.name }}</option>
+                    {% endfor %}}
+                </select>
+                <br><br>
+                <div style="width:30%;margin:0 auto;">
+                    <button type="button" class="button-success atomic-button" onclick="addAdvToCurrentProfile()">Add to adversary</button>
+                </div>
+            </div>
+            <div class="imgcontainer">
+                <span onclick="hideProfileModal()" class="close" title="Close Modal">&times;</span>
+            </div>
+        </div>
+    </form>
+</div>
+
+
+<table id="additional-info-row-template-holder" style="display:none">
+    <tr id="additional-info-template">
+        <td><input type="text" class="additional-key" style="text-align: right; margin-left: -2px; padding-right: 22px;" placeholder="key"></td>
+        <td><b>:</b></td>
+        <td><input type="text" class="additional-value" placeholder="value"></td>
+        <td><div class="ability-remove">
+            <div style="font-size:8px;">&#x274C;</div>
+        </div></td>
+    </tr>
+</table>
 
 <li id="ttp-template" class="ttp-template" style="display: none">
     <div class="dotted">
@@ -177,9 +244,9 @@
         <tr>
             <td style="width:10%"><b>platform:</b></td>
             <td>
-              <select id="ability-platform">
+              <select id="ability-platform" onchange="filterExecutors(this)">
                 <option value="" disabled selected>Select a platform</option>
-                    {% for platform in platforms %}
+                    {% for platform, executors in platforms.items() %}
                         <option value="{{ platform }}">{{ platform }}</option>
                     {% endfor %}
               </select>
@@ -190,18 +257,14 @@
             <td>
               <select id="ability-executor">
                 <option value="" disabled selected>Select an executor</option>
-                    {% for executor in executors %}
-                        <option value="{{ executor }}">{{ executor }}</option>
-                    {% endfor %}
               </select>
             </td>
         </tr>
         <tr>
-            <td style="width:10%"><b>payload:</b></td>
+            <td style="width:10%"><b>payloads:</b></td>
             <td>
-              <select id="ability-payload" class="ability-payload">
-                <option value="" disabled selected>Download a payload before running this ability (optional)</option>
-                {% for p in payloads %}
+              <select id="ability-payload" multiple="multiple">
+                {% for p in payloads|sort %}
                     <option value="{{ p }}">{{ p }}</option>
                 {% endfor %}}
               </select>
@@ -215,51 +278,34 @@
             <td style="width:10%"><b>cleanup:</b></td>
             <td><textarea id="ability-cleanup" spellcheck="false" contenteditable="true" placeholder="Enter a clean up command (optional)"></textarea></td>
         </tr>
+        <tr>
+            <td style="width:10%"><b>timeout:</b></td>
+            <td><textarea id="ability-timeout" spellcheck="false" contenteditable="true" placeholder="Enter number of seconds to timeout this command (optional)"></textarea></td>
+        </tr>
     </table>
     <br>
 </li>
 
-<ul id="pack-phase-template" style="display: none;"></ul>
-
-<li id="pack-ability-template" class="pack-ability-template" style="display: none">
-    <div class="column" style="flex:60%">
-        <table frame=void rules=rows style="border-spacing:2px;width:100%">
-            <tr>
-                <td style="width:10%"><b>id:</b></td>
-                <td class="ability-identifier">Unique identifier</td>
-            </tr>
-            <tr>
-                <td style="width:10%"><b>name:</b></td>
-                <td class="ability-name">Name</td>
-            </tr>
-            <tr>
-                <td style="width:10%"><b>description:</b></td>
-                <td class="ability-description">Description</td>
-            </tr>
-            <tr>
-                <td style="width:10%"><b>tactic:</b></td>
-                <td class="ability-tactic">ATT&CK tactic</td>
-            <tr>
-            <tr>
-                <td style="width:10%"><b>technique:</b></td>
-                <td class="ability-tech-id">ATT&CK technique ID</td>
-            </tr>
-            <tr>
-                <td style="width:10%"><b>technique:</b></td>
-                <td class="ability-tech-name">ATT&CK technique name</td>
-            </tr>
-            <tr>
-                <td style="width:10%"><b>platforms:</b></td>
-                <td class="ability-platforms">Platforms</td>
-            </tr>
-        </table>
-    </div>
-</li>
-
+<script src="/gui/js/ability.js"></script>
+<script src="/gui/js/muuri.min.js"></script>
 <script>
+    var exploits = {{exploits | tojson}};
+    var platforms = {{platforms | tojson}};
+
     $(document).ready(function () {
         stream('Profiles are optional. There are built-in profiles you can use right away, otherwise modify or build new ones here.');
+        addPhase(1);
     });
+
+    $(document).on("mouseover", ".tooltip", function(event) {
+        $("#ability-tooltip").show();
+        $("#ability-tooltip").css({left: event.clientX + 10, top: event.pageY, 'z-index':100});
+        $("#ability-tooltip").html(this.dataset.text);
+    })
+
+    $(document).on("mouseout", ".tooltip", function(event) {
+        $("#ability-tooltip").hide();
+    })
 
     function toggleAdversaryView() {
         $('#profile-existing-name option:eq(0)').prop('selected', true);
@@ -267,27 +313,8 @@
         $('#profile-description').val('');
         $('.tempPhase').remove();
         $('.phase-headers').remove();
-    }
-
-    function addPhase(number) {
-        stream('Add abilities to a phase by selecting +add abilities or +add pack. In the former, you can even create new abilities');
-        let template = $("#phase-template").clone();
-        if(number == null) {
-            let existingPhases = $('.tempPhase').length;
-            number = existingPhases + 1;
-        }
-        template.attr("id", "tempPhase" + number);
-        template.addClass("tempPhase");
-        if(number == 1) {
-            template.insertBefore('#dummy');
-        } else {
-            template.insertAfter('#tempPhase' + (number-1));
-        }
-        template.show();
-        let phaseHeader = $('<h4 class="phase-headers"><span class="phase-title">Phase ' + number +'</span><span class="ability-add" onclick="showPhaseModal('+number+')">&#10010; add ability</span><span class="pack-add" onclick="showPackModal('+number+')">&#10010; add pack</span><hr></h4>');
-        $('#tempPhase' + number).prepend(phaseHeader);
-        phaseHeader.show();
-        return template;
+        loadAtomicOrder([]);
+        clearObjective();
     }
 
     function saveAdversary() {
@@ -300,16 +327,19 @@
         let description = $('#profile-description').val();
         if(!description){ warn('Please enter a description!'); return; }
 
+        let objective = $('#objective-select').val();
         let abilities = [];
-        $('#profile-tests li').each(function() {
-            abilities.push({"id": $(this).attr('id'),"phase":$(this).data('phase')})
-        });
-        restRequest('PUT', {"name":name,"description":description,"phases":abilities,"index":"adversaries", 'i': identifier}, saveAdversaryCallback);
+        let listing = g_grid.getItems();
+        listing.forEach(function(entry){
+            abilities.push({"id": entry._element.id})});
+        restRequest('PUT', {"name":name,"description":description,"atomic_ordering":abilities,"index":"adversaries",
+            'id': identifier,"objective":objective}, saveAdversaryCallback);
     }
 
     function saveAdversaryCallback(data) {
         stream('Adversary saved!');
         appendToSelect('profile-existing-name', data[0].adversary_id, data[0].name, 'view-'+data[0].adversary_id);
+        $('#profile-existing-name').val(data[0].adversary_id);
         appendToSelect('queueFlow', data[0].adversary_id, data[0].name, 'qflow-'+data[0].adversary_id);
     }
 
@@ -321,7 +351,8 @@
 
         let data = {};
         let platforms = {};
-        $('#ttp-tests li').each(function() {
+        let invalid = false;
+        $('#ttp-tests > li').each(function() {
             let platform = $(this).find('#ability-platform').val();
 
             if(platforms[platform] === undefined) {
@@ -330,21 +361,37 @@
 
             let executor = $(this).find('#ability-executor').val();
             let command = $(this).find('#ability-command').val();
-            let payload = $(this).find('#ability-payload').val();
+            let payloads = $(this).find('#ability-payload').val();
             let cleanup = $(this).find('#ability-cleanup').val();
+            let timeout = $(this).find('#ability-timeout').val();
 
-            if(!name || !description || !command) {
-                return;
+            if(!command || !executor || !platform) {
+                invalid = true;
             }
             let ex = {'command': command};
-            if(payload) {
-                ex['payload'] = payload;
+            if(payloads) {
+                ex['payloads'] = payloads;
             }
             if(cleanup) {
                 ex['cleanup'] = cleanup;
             }
+            if(timeout) {
+                ex['timeout'] = parseInt(timeout);
+            }
             platforms[platform][executor] = ex;
         });
+        $('#ability-additional-info').find('#additional-info-table tr').each(function() {
+            let key = $(this).find('.additional-key').val();
+            if (key !== '' && !(key in data)){
+                data[key] = $(this).find('.additional-value').val();
+            } else {
+                invalid = true;
+            }
+        });
+        if(invalid) {
+            alert('Missing required data!');
+            return;
+        }
         data['index'] = 'abilities';
         data['id'] = $('#ability-identifier').val();
         data['name'] = name;
@@ -352,11 +399,11 @@
         data['tactic'] = $('#ability-tactic-name').val();
         data['technique'] = {'attack_id': $('#ability-tech-id').val(), 'name': $('#ability-tech-name').val()};
         data['platforms'] = platforms;
+        $('#ability-save').text('WAIT...');
         restRequest('PUT', data, saveAbilityCallback);
     }
 
     function saveAbilityCallback(data) {
-        stream('Ability saved!');
         let options = $('#phase-modal').find('#ability-ability-filter');
         let ability = options.find(":selected").data('ability');
         if((!ability) || (ability && ability.ability_id != data[0].ability_id)) {
@@ -364,6 +411,18 @@
             appendAbilityToList('phase-modal', a[0]);
             options.val(a[0].name);
         }
+        var $to_replace = -1;
+        $.each(exploits, function(i, ab) {
+            if (ab.ability_id === data[0].ability_id) {
+                $to_replace = i;
+                return false;
+            }
+        });
+        if ($to_replace != -1) {
+            exploits[$to_replace] = data[0];
+            loadAdversary();
+        }
+        alert('Ability saved!');
     }
 
     function removeBlock(element){
@@ -391,107 +450,129 @@
     }
 
     function loadAdversaryCallback(data) {
-        stream('Profiles contain phases, which will run in order. Each phase contains abilities, or TTPs.');
+        stream('Profiles contain abilities which will run in atomic order by default. It contains abilities, or TTPs.');
         $('#profile-goal').val(data[0].name);
         $('#profile-description').val(data[0].description);
 
         $('.tempPhase').remove();
         $('.phase-headers').remove();
-        $.each(data[0].phases, loadAdversaryPhase);
+        loadAtomicOrder(data[0].atomic_ordering);
+        $('#objective-existing')[0].value = data[0].objective.id;
+        handleObjectiveSelection(data[0].objective.id);
+        linkObjective();
     }
 
-    function loadAdversaryPhase(phase, abilities) {
-        let template = $("#tempPhase" + phase);
-        if (!template.length) {
-            template = addPhase(phase);
-        }
+    function createMuuriGrid() {
+    	let packer = new Muuri.Packer();
+        return new Muuri('.grid', {
+            dragEnabled: true,
+            layout: function (items, width, height) {
+            let fakeItems = items.map(item => {
+              return {
+                _width: Math.floor(item._width + item._marginLeft + item._marginRight),
+                _height: Math.floor(item._height + item._marginTop + item._marginBottom),
+                _marginLeft: 0,
+                _marginRight: 0,
+                _marginTop: 0,
+                _marginBottom: 0
+              }
+            });
+            let slots = [];
+            let options = {rounding: false};
+            return packer.getLayout(fakeItems, width, height, slots, options);}
+        });
+    }
 
+    function loadAtomicOrder(abilities) {
+        let template = $("#tempPhase");
+        if (!template.length) {
+            template = addPhase(1);
+        }
+        let grid = createMuuriGrid();
         abilities = addPlatforms(abilities);
         abilities.forEach(function(a) {
-            let abilityBox = buildAbility(a, phase);
-            template.find('#profile-tests').append(abilityBox);
+            let abilityBox = buildAbility(a);
+            grid.add(abilityBox[0]);
+        });
+        g_grid = grid;
+        g_grid.on('move', updateIndices).on('add', updateIndices).on('remove',updateIndices);
+        updateIndices();
+    }
+
+    function updateIndices() {
+        g_grid.getItems().forEach(function (item, i) {
+          var newId = i + 1;
+          item.getElement().setAttribute('data-id', newId);
+          item.getElement().querySelector('.ability-order').innerHTML = newId;
+          if (item._dragPlaceholder.isActive()) {
+            item._dragPlaceholder._element.querySelector('.ability-order').innerHTML = newId;
+          }
         });
     }
 
-    function loadPackCallback(data) {
-        let packPhases = data[0]['phases'];
-        let phaseKeys = Object.keys(packPhases);
-        let curPhase = $('#pack-modal').data('phase');
-        let mergePhase = $('#adv-pack-merge').is(':checked');
-        let phaseMod = 0;
-
-        if (!mergePhase) {
-            shiftPhasesDown(curPhase, phaseKeys.length);
-            phaseMod = curPhase;
+    function addPhase(number) {
+        stream('Add abilities by selecting +add abilities. You can even create new abilities');
+        let template = $("#phase-template").clone();
+        if(number == null) {
+            let existingPhases = $('.tempPhase').length;
+            number = existingPhases + 1;
         }
-        phaseKeys.forEach(function(key) {
-            loadAdversaryPhase(parseInt(key) + phaseMod, packPhases[key]);
-        });
+        template.attr("id", "tempPhase" + number);
+        template.addClass("tempPhase");
+        if(number == 1) {
+            template.insertBefore('#dummy');
+        } else {
+            template.insertAfter('#tempPhase' + (number-1));
+        }
+        template.show();
+        let phaseHeader = $('<h4 class="phase-headers"><span class="phase-title">Ordering</span>' +
+            '<span class="ability-add" onclick="showPhaseModal('+number+')">&#10010; add ability</span>'
+            +'<span class="ability-add" onclick="showProfileModal('+number+')" ' +
+            'style="margin-right:5px;padding-right:5px;border-right:1px white solid;">&#10010; add adversary</span>' +
+            '<span class="ability-add" onclick="showObjectiveModal()" ' +
+            'style="margin-right:5px;padding-right:5px;border-right:1px white solid;">&#10010; link objective</span>' +
+            '<hr></h4>');
+        $('#tempPhase' + number).prepend(phaseHeader);
+        phaseHeader.show();
+        return template;
     }
 
-    function shiftPhasesDown(after, number) {
-        $('.tempPhase').each(function(idx, phaseDiv) {
-            let i = idx + 1;
-            if (i <= after) {
-                return;
-            }
-            let newi = i + number;
-            $(phaseDiv).attr('id', $(phaseDiv).attr('id').slice(0, -1) + newi);
-            $(phaseDiv).find('.phase-title').text('Phase ' + newi);
-            $(phaseDiv).find('.ability-box').data('phase', newi);
-            $(phaseDiv).find('.ability-add').attr('onclick', 'showPhaseModal('+newi+')');
-            $(phaseDiv).find('.pack-add').attr('onclick', 'showPackModal('+newi+')');
-        });
-    }
-
-    function addPlatforms(abilities) {
-        let ab = [];
-        abilities.forEach(function(a) {
-            let exists = false;
-            for(let i in ab){
-                if(ab[i].ability_id === a.ability_id) {
-                    ab[i]['platform'].push(a.platform);
-                    ab[i]['executor'].push(a.executor);
-                    exists = true;
-                    break;
-                }
-            }
-            if(!exists) {
-                a['platform'] = [a.platform];
-                a['executor'] = [a.executor];
-                ab.push(a);
-            }
-        });
-        return ab;
-    }
-
-    function buildAbility(ability, phase){
+    function buildAbility(ability){
         let requirements = buildRequirements(ability.test);
         let template = $("#ability-template").clone();
         template.attr('id', ability.ability_id)
             .data('parsers', ability.parsers)
             .data('testId', ability.ability_id)
-            .data('phase', phase)
             .data('requirements', requirements);
 
         template.find('#name').html(ability.name);
         template.find('#ability-attack').html(ability.tactic + ' | '+ ability.technique_name);
 
         if(requirements.length > 0) {
-            template.find('#ability-metadata').append('<td><div id="ability-padlock"><div class="tooltip"><span class="tooltiptext">This ability has requirements</span>&#128274;</div></div></td>');
+            template.find('#ability-metadata').append('<div id="ability-padlock" style="padding: 0 2;"><div class="tooltip" data-text="This ability has requirements">&#128274;</div></div>');
         }
         if(ability.cleanup) {
-            template.find('#ability-metadata').append('<td><div id="ability-broom"><div class="tooltip"><span class="tooltiptext">This ability can clean itself up</span>&#128465;</div></div></td>');
+            template.find('#ability-metadata').append('<div id="ability-broom" style="padding: 0 2;"><div class="tooltip" data-text="This ability can clean itself up">&#128465;</div></div>');
         }
         if(ability.parsers.length > 0) {
-           template.find('#ability-metadata').append('<td><div id="ability-parser"><div class="tooltip"><span class="tooltiptext">This ability unlocks other abilities</span>&#128273;</div></div></td>');
+           template.find('#ability-metadata').append('<div id="ability-parser" style="padding: 0 2;"><div class="tooltip" data-text="This ability unlocks other abilities">&#128273;</div></div>');
         }
-        if(ability.payload.length > 0) {
-           template.find('#ability-metadata').append('<td><div id="ability-payload"><div class="tooltip"><span class="tooltiptext">This ability uses a payload</span>&#128176;</div></div></td>');
+        if(ability.payloads.length > 0) {
+           template.find('#ability-metadata').append('<div id="ability-payload" style="padding: 0 2;"><div class="tooltip" data-text="This ability uses a payload">&#128176;</div></div>');
         }
         template.find('#ability-rm').html('<div class="ability-remove"><div style="font-size:8px;">&#x274C;</div></div>');
         template.find('.ability-remove').click(function() {
-            removeAbility(ability.ability_id);
+            removeAbility(ability);
+        });
+        template.find('.ability-show').click(function() {
+            let pModal = $('#phase-modal');
+            let tacList = pModal.find('#ability-tactic-filter');
+            let techList = pModal.find('#ability-technique-filter');
+            let abList = pModal.find('#ability-ability-filter');
+            tacList.val(ability['tactic']).change();
+            techList.val(ability['technique_id']).change();
+            abList.val(ability['name']).change();
+            showPhaseModal(1);
         });
 
         ability.platform.forEach(function(p, index) {
@@ -500,7 +581,7 @@
             else if(exec === 'pwsh') {exec = 'powershell core';}
             else if(exec === 'sh') {exec = 'shell';}
             else if(exec === 'cmd') {exec = 'commandline';}
-            let icon = $('<div class="tooltip"><span class="tooltiptext">Works on '+p+' ('+ exec +')</span><img src="/gui/img/'+p+'.png"/></div>');
+            let icon = $('<div class="tooltip" data-text="Works on '+p+' ('+ exec +')"></span><img src="/gui/img/'+p+'.png"/></div>');
             icon.appendTo(template.find('#icon-row'));
         });
         template.show();
@@ -522,61 +603,21 @@
         return [];
     }
 
-    function removeAbility(ability_id){
-        $('#'+ability_id).remove();
-    }
-
-    function populateTechniques(parentId, exploits){
-        exploits = addPlatforms(exploits);
-        let parent = $('#'+parentId);
-        $(parent).find('#ability-technique-filter').empty().append("<option disabled='disabled' selected>Choose a technique</option>");
-
-        let tactic = $(parent).find('#ability-tactic-filter').find(":selected").data('tactic');
-        let found = [];
-        let showing = [];
-        exploits.forEach(function(ability) {
-            if(ability.tactic.includes(tactic) && !found.includes(ability.technique_id)) {
-                found.push(ability.technique_id);
-                appendTechniqueToList(parentId, tactic, ability);
-                showing += 1;
+    function removeAbility(ability){
+        let listing = g_grid.getItems();
+        listing.forEach(function(entry) {
+            if (entry._element.id === ability.ability_id) {
+                g_grid.remove(g_grid.getItems().indexOf(entry), {removeElements: true});
             }
         });
-    }
-
-    function populateAbilities(parentId, exploits){
-        exploits = addPlatforms(exploits);
-        let parent = $('#'+parentId);
-        $(parent).find('#ability-ability-filter').empty();
-
-        let showing = [];
-        let attack_id = $(parent).find('#ability-technique-filter').find(":selected").data('technique');
-        exploits.forEach(function(ability) {
-            if(attack_id === ability.technique_id) {
-                appendAbilityToList(parentId, ability);
-                showing += 1;
-            }
-        });
-        $(parent).find('#ability-ability-filter').prepend("<option disabled='disabled' selected>"+showing.length+" abilities</option>");
-    }
-
-    function appendTechniqueToList(parentId, tactic, value) {
-        $('#'+parentId).find('#ability-technique-filter').append($("<option></option>")
-            .attr("value", value['technique_id'])
-            .data("technique", value['technique_id'])
-            .text(value['technique_id'] + ' | '+ value['technique_name']));
-    }
-
-    function appendAbilityToList(parentId, value) {
-        $('#'+parentId).find('#ability-ability-filter').append($("<option></option>")
-            .attr("value", value['name'])
-            .data("ability", value)
-            .text(value['name']));
     }
 
     function showAbility(parentId, exploits) {
         $('#ability-name').val('');
         $('#ability-description').val('');
         $('#ttp-tests').empty();
+        $('#ability-additional-info').find('#additional-info-table').empty();
+        $('#ability-additional-info').hide();
 
         let aid = $('#'+parentId).find('#ability-ability-filter').find(":selected").data('ability');
         $('#ability-identifier').val(aid.ability_id);
@@ -585,47 +626,49 @@
         $('#ability-tactic-name').val(aid.tactic);
         $('#ability-tech-id').val(aid.technique_id);
         $('#ability-tech-name').val(aid.technique_name);
+
+        if (Object.keys(aid.additional_info).length > 0) {
+            $.each(aid.additional_info, function(key, value) {
+                let $table_row = addAdditionalInfo();
+                $table_row.find(".additional-key").val(key);
+                $table_row.find(".additional-value").val(value);
+            });
+            $('#ability-additional-info').show();
+        }
+
         exploits.forEach(function(ability) {
             if(aid.ability_id === ability.ability_id) {
                 let template = $("#ttp-template").clone();
+                let unique = aid.ability_id + ability.platform + ability.executor;
                 template.find('#ability-platform').val(ability.platform);
+                filterExecutors(template.find('#ability-platform'));
                 template.find('#ability-executor').val(ability.executor);
                 template.find('#ability-command').val(atob(ability.test));
-                template.find('#ability-cleanup').val(atob(ability.cleanup));
-                template.find('#ability-payload').val(ability.payload);
+                template.find('#ability-timeout').val(ability.timeout);
+                if(ability.cleanup[0]) {
+                    template.find('#ability-cleanup').val(atob(ability.cleanup[0]));
+                }
                 template.show();
+                template.attr('id', unique);
                 $('#ttp-tests').append(template);
+                let payloads = $('#'+unique).find('#ability-payload');
+                payloads.multiSelect({
+                    selectableHeader: "<div class='payload-select-header'>Available Payloads</div>",
+                    selectionHeader: "<div class='payload-select-header'>Selected Payloads</div>",
+                    keepOrder: true });
+                payloads.multiSelect('select', ability.payloads);
             }
         });
     }
 
-    function showPack() {
-        $('#pack-phases').empty();
-        restRequest('POST', {'index':'adversaries', 'adversary_id': $('#adv-pack-filter').val()}, showPackCallback);
-    }
-
-    function showPackCallback(data) {
-        Object.keys(data[0].phases).forEach(function(phaseID) {
-            let phaseTemplate = $("#pack-phase-template").clone();
-            phaseTemplate.attr('id', 'pack-phase' + phaseID);
-
-            let abilities = addPlatforms(data[0].phases[phaseID]);
-            abilities.forEach(function(ability) {
-                let template = $("#pack-ability-template").clone();
-                template.find('.ability-identifier').text(ability.ability_id);
-                template.find('.ability-name').text(ability.name);
-                template.find('.ability-description').text(ability.description);
-                template.find('.ability-tactic').text(ability.tactic);
-                template.find('.ability-tech-id').text(ability.technique_id);
-                template.find('.ability-tech-name').text(ability.technique_name);
-                template.find('.ability-platforms').text(ability.platform.join(', '));
-                template.show();
-                phaseTemplate.append(template);
-            });
-
-            phaseTemplate.show();
-            $('#pack-phases').append("<h4>Phase " + phaseID + "</h4>");
-            $('#pack-phases').append(phaseTemplate);
+    function filterExecutors(elem) {
+        let ttpTable = $(elem).parent().parent().parent();
+        let platform = $(elem).val();
+        let executorSelect = $(ttpTable).find('#ability-executor');
+        $(executorSelect).empty();
+        $(executorSelect).append('<option value="" disabled selected>Select an executor</option>');
+        $.each(platforms[platform], function(i, executor) {
+            $(executorSelect).append('<option value="' + executor + '">' + executor + '</option>-->');
         });
     }
 
@@ -633,17 +676,85 @@
         let template = $("#ttp-template").clone();
         template.show();
         $('#ttp-tests').prepend(template);
+        $('#ttp-tests').find('#ability-payload').multiSelect({
+            selectableHeader: "<div class='payload-select-header'>Available Payloads</div>",
+            selectionHeader: "<div class='payload-select-header'>Selected Payloads</div>",
+            keepOrder: true });
+    }
+
+    function addAdditionalInfo(){
+        let $table_row = $('#additional-info-row-template-holder').find('#additional-info-template').clone();
+        $('#ability-additional-info').find('#additional-info-table').append($table_row);
+        $('#ability-additional-info').show();
+        $table_row.find('.ability-remove').click(function(){
+            if ($('#additional-info-table tr').length == 1){
+                $('#ability-additional-info').hide();
+            }
+            $(this).parent().parent().remove();
+        });
+        return $table_row;
     }
 
     function showPhaseModal(phase) {
         $('#phase-modal').data("phase", phase);
         $('#ability-identifier').text(uuidv4());
+        $('body').keyup(function(e){
+            if(e.key == "Escape"){
+                hidePhaseModal();
+            }
+        });
         document.getElementById("phase-modal").style.display="block";
     }
 
-    function showPackModal(phase) {
-        $('#pack-modal').data("phase", phase);
-        document.getElementById("pack-modal").style.display="block";
+    function hidePhaseModal() {
+        $("body").off("keyup");
+        document.getElementById("phase-modal").style.display="none";
+    }
+
+    function clearPhaseModal() {
+        $('#ability-tactic-filter option:selected').removeAttr('selected');
+        $('#ability-tactic-filter option:first').remove();
+        $('#ability-tactic-filter').prepend('<option disabled selected>Choose a tactic</option>');
+        $('#ability-technique-filter').empty();
+        $('#ability-technique-filter').append('<option disabled selected>Choose a technique</option>');
+        $('#ability-ability-filter').empty();
+        $('#ability-ability-filter').append('<option disabled selected>0 abilities</option>');
+        $('#ability-identifier').val('');
+        $('#ability-name').val('');
+        $('#ability-description').val('');
+        $('#ability-tactic-name').val('');
+        $('#ability-tech-id').val('');
+        $('#ability-tech-name').val('');
+        $('#ttp-tests').empty();
+    }
+
+    function showProfileModal(phase) {
+        $('#adv-profile-modal').data("phase", phase);
+        $('body').keyup(function(e){
+            if(e.key == "Escape"){
+                hideProfileModal();
+            }
+        });
+        document.getElementById("adv-profile-modal").style.display="block";
+    }
+
+    function showObjectiveModal() {
+        $('body').keyup(function(e){
+            if(e.key == "Escape"){
+                hideObjectiveModal();
+            }
+        });
+        document.getElementById("adv-objective-modal").style.display="block";
+    }
+
+    function hideProfileModal() {
+        $("body").off("keyup");
+        document.getElementById("adv-profile-modal").style.display="none";
+    }
+
+    function hideObjectiveModal(){
+        $("body").off("keyup");
+        document.getElementById("adv-objective-modal").style.display="none";
     }
 
     function freshId(){
@@ -679,18 +790,34 @@
         }
     });
 
-    function addAbilityToPhase() {
-        let parent = $('#phase-modal');
-        let phase = $(parent).data('phase');
-        let ability = $('#phase-modal').find('#ability-ability-filter').find(":selected").data('ability');
-        let abilityBox = buildAbility(ability, phase);
-        $('#tempPhase' + phase).find('#profile-tests').append(abilityBox);
-        document.getElementById('phase-modal').style.display='none';
+    $('#objective-existing').on('change', function (){
+        handleObjectiveSelection($('#objective-existing').val());
+    });
+
+    function handleObjectiveSelection(id) {
+       restRequest('POST', {'index':'objectives', 'id': id}, requestObjectiveCallback);
     }
 
-    function addPackToPhase() {
-        restRequest('POST', {'index':'adversaries', 'adversary_id': $('#adv-pack-filter').val()}, loadPackCallback);
-        document.getElementById('pack-modal').style.display='none';
+    function requestObjectiveCallback(data){
+        $('#objective-description')[0].value = data[0]['description'];
+    }
+
+    function linkObjective() {
+        $('#objective-select')[0].value = $('#objective-existing').val();
+        $('#objective-img')[0].style="";
+    }
+
+    function clearObjective() {
+        $('#objective-select')[0].value = '';
+        $('#objective-img')[0].style="display:none";
+    }
+
+    function addAbilityToPhase() {
+        let ability = $('#phase-modal').find('#ability-ability-filter').find(":selected").data('ability');
+        let abilityBox = buildAbility(ability);
+        g_grid.add(abilityBox[0]);
+        clearPhaseModal();
+        hidePhaseModal();
     }
 
     function deleteProfile(){
@@ -705,5 +832,20 @@
         }
     }
 
+    function addAdvToCurrentProfile() {
+        restRequest('POST', {'index':'adversaries', 'adversary_id': $('#adv-profile-filter').val()}, loadAdvProfileCallback);
+        hideProfileModal();
+	}
+
+	function loadAdvProfileCallback(data){
+        let atomic_order = data[0]['atomic_ordering'];
+        let abilities = addPlatforms(atomic_order);
+        for (let ab of abilities) {
+	        let abilityBox = buildAbility(ab);
+	        g_grid.add(abilityBox[0]);
+		}
+    }
+
     //# sourceURL=profiles.js
+
 </script>

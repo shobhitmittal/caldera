@@ -1,48 +1,76 @@
 import os
 from base64 import b64decode
 
-from app.objects.secondclass.c_parser import Parser
-from app.objects.secondclass.c_requirement import Requirement
-from app.objects.secondclass.c_variation import Variation
+import marshmallow as ma
+
+from app.objects.interfaces.i_object import FirstClassObjectInterface
+from app.objects.secondclass.c_parser import ParserSchema
+from app.objects.secondclass.c_requirement import RequirementSchema
+from app.objects.secondclass.c_variation import Variation, VariationSchema
 from app.utility.base_object import BaseObject
+from app.utility.base_world import AccessSchema
 
 
-class Ability(BaseObject):
+class AbilitySchema(ma.Schema):
+    ability_id = ma.fields.String()
+    tactic = ma.fields.String(missing=None)
+    technique_name = ma.fields.String(missing=None)
+    technique_id = ma.fields.String(missing=None)
+    name = ma.fields.String(missing=None)
+    description = ma.fields.String(missing=None)
+    cleanup = ma.fields.List(ma.fields.String(), missing=None)
+    executor = ma.fields.String(missing=None)
+    platform = ma.fields.String(missing=None)
+    payloads = ma.fields.List(ma.fields.String(), missing=None)
+    parsers = ma.fields.List(ma.fields.Nested(ParserSchema), missing=None)
+    requirements = ma.fields.List(ma.fields.Nested(RequirementSchema), missing=None)
+    privilege = ma.fields.String(missing=None)
+    timeout = ma.fields.Int(missing=60)
+    repeatable = ma.fields.Bool(missing=None)
+    language = ma.fields.String(missing=None)
+    code = ma.fields.String(missing=None)
+    build_target = ma.fields.String(missing=None)
+    variations = ma.fields.List(ma.fields.Nested(VariationSchema), missing=None)
+    buckets = ma.fields.List(ma.fields.String(), missing=None)
+    additional_info = ma.fields.Dict(keys=ma.fields.String(), values=ma.fields.String())
+    access = ma.fields.Nested(AccessSchema, missing=None)
+    test = ma.fields.String(missing=None)
+
+    @ma.post_load
+    def build_ability(self, data, **_):
+        if 'technique_name' in data:
+            data['technique'] = data.pop('technique_name')
+        return Ability(**data)
+
+
+class Ability(FirstClassObjectInterface, BaseObject):
+
+    schema = AbilitySchema()
+    display_schema = AbilitySchema(exclude=['repeatable', 'language', 'code', 'build_target'])  # may need to fix for id=self.unique
 
     RESERVED = dict(payload='#{payload}')
+    HOOKS = dict()
 
     @property
     def test(self):
         return self.replace_app_props(self._test)
 
+    @test.setter
+    def test(self, cmd):
+        self._test = self.encode_string(cmd)
+
     @property
     def unique(self):
         return '%s%s%s' % (self.ability_id, self.platform, self.executor)
 
-    @classmethod
-    def from_json(cls, json):
-        parsers = [Parser.from_json(p) for p in json['parsers']]
-        requirements = [Requirement.from_json(r) for r in json['requirements']]
-        return cls(ability_id=json['ability_id'], tactic=json['tactic'], technique_id=json['technique_id'],
-                   technique=json['technique_name'], name=json['name'], test=json['test'],
-                   description=json['description'], cleanup=json['cleanup'], executor=json['executor'],
-                   platform=json['platform'], payload=json['payload'], parsers=parsers,
-                   requirements=requirements, privilege=json['privilege'], timeout=json['timeout'], access=json['access'])
-
     @property
-    def display(self):
-        return self.clean(dict(id=self.unique, ability_id=self.ability_id, tactic=self.tactic,
-                               technique_name=self.technique_name,
-                               technique_id=self.technique_id, name=self.name,
-                               test=self.test, description=self.description, cleanup=self.cleanup,
-                               executor=self.executor, unique=self.unique,
-                               platform=self.platform, payload=self.payload, parsers=[p.display for p in self.parsers],
-                               requirements=[r.display for r in self.requirements], privilege=self.privilege,
-                               timeout=self.timeout, access=self.access.value, variations=[v.display for v in self.variations]))
+    def raw_command(self):
+        return self.decode_bytes(self._test)
 
     def __init__(self, ability_id, tactic=None, technique_id=None, technique=None, name=None, test=None,
-                 description=None, cleanup=None, executor=None, platform=None, payload=None, parsers=None,
-                 requirements=None, privilege=None, timeout=60, repeatable=False, access=None, variations=None):
+                 description=None, cleanup=None, executor=None, platform=None, payloads=None, parsers=None,
+                 requirements=None, privilege=None, timeout=60, repeatable=False, buckets=None, access=None,
+                 variations=None, language=None, code=None, build_target=None, additional_info=None, tags=None, **kwargs):
         super().__init__()
         self._test = test
         self.ability_id = ability_id
@@ -54,15 +82,28 @@ class Ability(BaseObject):
         self.cleanup = [cleanup] if cleanup else []
         self.executor = executor
         self.platform = platform
-        self.payload = payload
-        self.parsers = parsers
-        self.requirements = requirements
+        self.payloads = payloads if payloads else []
+        self.parsers = parsers if parsers else []
+        self.requirements = requirements if requirements else []
         self.privilege = privilege
         self.timeout = timeout
         self.repeatable = repeatable
-        self.variations = [Variation(description=v['description'], command=v['command']) for v in variations]
+        self.language = language
+        self.code = code
+        self.build_target = build_target
+        self.variations = get_variations(variations)
+        self.buckets = buckets if buckets else []
         if access:
             self.access = self.Access(access)
+        self.additional_info = additional_info or dict()
+        self.additional_info.update(**kwargs)
+        self.tags = set(tags) if tags else set()
+
+    def __getattr__(self, item):
+        try:
+            return super().__getattribute__('additional_info')[item]
+        except KeyError:
+            raise AttributeError(item)
 
     def store(self, ram):
         existing = self.retrieve(ram['abilities'], self.unique)
@@ -73,14 +114,17 @@ class Ability(BaseObject):
         existing.update('technique_name', self.technique_name)
         existing.update('technique_id', self.technique_id)
         existing.update('name', self.name)
-        existing.update('_test', self.test)
+        existing.update('_test', self._test)
         existing.update('description', self.description)
         existing.update('cleanup', self.cleanup)
         existing.update('executor', self.executor)
         existing.update('platform', self.platform)
-        existing.update('payload', self.payload)
+        existing.update('payloads', self.payloads)
         existing.update('privilege', self.privilege)
         existing.update('timeout', self.timeout)
+        existing.update('code', self.code)
+        existing.update('language', self.language)
+        existing.update('build_target', self.build_target)
         return existing
 
     async def which_plugin(self):
@@ -89,7 +133,25 @@ class Ability(BaseObject):
                 return plugin
         return None
 
-    def replace(self, encoded_cmd):
+    def replace_cleanup(self, encoded_cmd, payload):
         decoded_cmd = b64decode(encoded_cmd).decode('utf-8', errors='ignore').replace('\n', '')
-        decoded_cmd = decoded_cmd.replace(self.RESERVED['payload'], self.payload)
+        decoded_cmd = decoded_cmd.replace(self.RESERVED['payload'], payload)
         return decoded_cmd
+
+    async def add_bucket(self, bucket):
+        if bucket not in self.buckets:
+            self.buckets.append(bucket)
+
+
+def get_variations(data):
+    variations = []
+    if data:
+        for v in data:
+            if isinstance(v, Variation):
+                description = v.description
+                command = v.command
+            else:
+                description = v['description']
+                command = v['command']
+            variations.append(Variation.load(dict(description=description, command=command)))
+    return variations
